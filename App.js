@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator, Alert, Pressable, SafeAreaView, ScrollView,
+  Alert, Pressable, SafeAreaView, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { StatusBar } from "expo-status-bar";
@@ -23,6 +23,7 @@ import {
   getSetting, setSetting, clearLocal,
 } from "./src/db.js";
 import { sync, checkServer } from "./src/api.js";
+import { FadeIn, PendingBadge, ProgressBar, SkeletonList, StatusDot } from "./src/ui.js";
 
 const DEFAULTS = {
   // Change this on demo day. It is the laptop's address on the local
@@ -44,6 +45,7 @@ export default function App() {
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [loaded, setLoaded] = useState(false);
   const [description, setDescription] = useState("");
   const syncTimer = useRef(null);
 
@@ -58,6 +60,7 @@ export default function App() {
       const saved = await getSetting("settings", DEFAULTS);
       setSettings({ ...DEFAULTS, ...saved });
       await refresh();
+      setLoaded(true);
     })();
   }, [refresh]);
 
@@ -214,11 +217,11 @@ export default function App() {
           <Text style={s.subtitle}>Field collection</Text>
         </View>
         {pending.total > 0 && (
-          <View style={s.pendingBadge}>
+          <PendingBadge style={s.pendingBadge}>
             <Text style={s.pendingText}>{pending.total} pending</Text>
-          </View>
+          </PendingBadge>
         )}
-        <View style={[s.dot, online ? s.dotOn : s.dotOff]} />
+        <StatusDot online={online} style={s.dot} onlineStyle={s.dotOn} offlineStyle={s.dotOff} />
         <Pressable onPress={() => setShowSettings((v) => !v)} hitSlop={10}>
           <Text style={s.gear}>{showSettings ? "Done" : "Setup"}</Text>
         </Pressable>
@@ -258,7 +261,7 @@ export default function App() {
           />
           <Pressable style={[s.primary, busy && s.primaryDisabled]} onPress={collect} disabled={!!busy}>
             <Text style={s.primaryText}>
-              {busy ? "Fingerprinting…" : "Collect evidence"}
+              {busy ? "Fingerprinting" : "Collect evidence"}
             </Text>
           </Pressable>
           <Text style={s.hint}>
@@ -268,22 +271,25 @@ export default function App() {
         </View>
 
         {busy && (
-          <View style={s.card}>
+          <FadeIn style={s.card}>
             <Text style={s.cardLabel}>{busy.label}</Text>
-            <View style={s.progressTrack}>
-              <View style={[s.progressFill, { width: `${Math.round((busy.chunks / Math.max(busy.totalChunks, 1)) * 100)}%` }]} />
-            </View>
+            <ProgressBar
+              progress={busy.chunks / Math.max(busy.totalChunks, 1)}
+              indeterminate={busy.chunks === 0}
+            />
             <Text style={s.hint}>
-              Chunk {busy.chunks} of {busy.totalChunks}. Each chunk is 4MB and is hashed on its
-              own, so memory use does not grow with the size of the file.
+              {busy.chunks === 0
+                ? "Reading the file."
+                : `Chunk ${busy.chunks} of ${busy.totalChunks}. Each chunk is 4MB and is hashed on ` +
+                  "its own, so memory use does not grow with the size of the file."}
             </Text>
-          </View>
+          </FadeIn>
         )}
 
         {notice && (
-          <View style={[s.notice, notice.kind === "failed" ? s.noticeBad : s.noticeOk]}>
+          <FadeIn key={notice.text} style={[s.notice, notice.kind === "failed" ? s.noticeBad : s.noticeOk]}>
             <Text style={notice.kind === "failed" ? s.noticeBadText : s.noticeOkText}>{notice.text}</Text>
-          </View>
+          </FadeIn>
         )}
 
         <View style={s.rowBetween}>
@@ -295,17 +301,26 @@ export default function App() {
           </Pressable>
         </View>
 
-        {items.length === 0 && (
-          <Text style={s.empty}>
-            Nothing collected on this device yet. Tap Collect evidence to seal an item.
-          </Text>
+        {/* The queue is read from SQLite, which is fast but not instant.
+            Showing the shape of the list is better than showing nothing and
+            then having rows appear under the officer's thumb. */}
+        {!loaded && <SkeletonList count={2} />}
+
+        {loaded && items.length === 0 && (
+          <FadeIn>
+            <Text style={s.empty}>
+              Nothing collected on this device yet. Tap Collect evidence to seal an item.
+            </Text>
+          </FadeIn>
         )}
 
-        {items.map((item) => {
+        {items.map((item, index) => {
           const status = statusOf(item);
           const chunks = JSON.parse(item.chunk_hashes).length;
           return (
-            <View key={item.local_id} style={s.item}>
+            // Newest first, so the item just sealed is the one that settles
+            // in at the top of the list the officer is already looking at.
+            <FadeIn key={item.local_id} delay={Math.min(index * 55, 330)} style={s.item}>
               <View style={s.rowBetween}>
                 <Text style={s.itemRef}>{item.reference}</Text>
                 <View style={[s.badge, status.style]}>
@@ -326,7 +341,7 @@ export default function App() {
                 </Text>
               )}
               {item.sync_error && <Text style={s.itemError}>{item.sync_error}</Text>}
-            </View>
+            </FadeIn>
           );
         })}
 
@@ -386,9 +401,6 @@ const s = StyleSheet.create({
   primary: { backgroundColor: "#2f6f3f", borderRadius: 8, paddingVertical: 15, alignItems: "center", marginTop: 12 },
   primaryDisabled: { opacity: 0.5 },
   primaryText: { color: "#fff", fontSize: 16, fontWeight: "700" },
-
-  progressTrack: { height: 8, backgroundColor: "#12120f", borderRadius: 4, overflow: "hidden", marginTop: 4 },
-  progressFill: { height: 8, backgroundColor: "#4ade80" },
 
   notice: { borderRadius: 8, padding: 12, marginBottom: 16 },
   noticeOk: { backgroundColor: "#12331d" },
