@@ -72,11 +72,13 @@ Set in the app under **Setup**, and persisted to SQLite.
 
 | Setting | Example | Notes |
 | --- | --- | --- |
-| Server address | `https://custody-api-mvgr.onrender.com` | The hosted API, and the default. For a local backend use the machine's LAN address, such as `http://192.168.1.24:4000`. Never `localhost`: on a handset that resolves to the handset. |
 | Officer badge | `NPF-22841` | Must exist on the server |
 | Case reference | `CID-2026-0041` | Must exist on the server |
 
-The API prints its LAN address on startup. Defaults are in `DEFAULTS` in `App.js`.
+The server address is not a setting. It ships with the build, as `serverUrl` in `DEFAULTS` in
+`App.js`, and a stored value never overrides it. To sync to a local backend, change it there and
+rebuild: use the machine's LAN address, such as `http://192.168.1.24:4000`, never `localhost`,
+which on a handset resolves to the handset. The API prints its LAN address on startup.
 
 ---
 

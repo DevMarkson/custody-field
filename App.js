@@ -57,7 +57,9 @@ function FieldApp() {
     (async () => {
       await getDb();
       const saved = await getSetting("settings", DEFAULTS);
-      setSettings({ ...DEFAULTS, ...saved });
+      // The server address is part of the build, not a stored preference, so an
+      // address saved by an earlier version cannot strand the device.
+      setSettings({ ...DEFAULTS, ...saved, serverUrl: DEFAULTS.serverUrl });
       await refresh();
       setLoaded(true);
     })();
@@ -218,9 +220,6 @@ function FieldApp() {
 
       {showSettings && (
         <View style={s.settings}>
-          <Field label="Server address" value={settings.serverUrl}
-            onChange={(v) => saveSettings({ ...settings, serverUrl: v })}
-            hint="Where this device syncs." />
           <Field label="Officer badge" value={settings.officerBadge}
             onChange={(v) => saveSettings({ ...settings, officerBadge: v })} />
           <Field label="Case reference" value={settings.caseRef}
