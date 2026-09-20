@@ -220,7 +220,7 @@ function FieldApp() {
         <View style={s.settings}>
           <Field label="Server address" value={settings.serverUrl}
             onChange={(v) => saveSettings({ ...settings, serverUrl: v })}
-            hint="The laptop's address on this network. Not localhost." />
+            hint="Where this device syncs." />
           <Field label="Officer badge" value={settings.officerBadge}
             onChange={(v) => saveSettings({ ...settings, officerBadge: v })} />
           <Field label="Case reference" value={settings.caseRef}
