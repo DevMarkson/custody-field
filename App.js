@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Pressable, SafeAreaView, ScrollView,
+  Alert, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import * as Location from "expo-location";
@@ -26,6 +27,15 @@ const uid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 
 export default function App() {
+  return (
+    <SafeAreaProvider>
+      <FieldApp />
+    </SafeAreaProvider>
+  );
+}
+
+function FieldApp() {
+  const insets = useSafeAreaInsets();
   const [settings, setSettings] = useState(DEFAULTS);
   const [items, setItems] = useState([]);
   const [pending, setPending] = useState({ items: 0, events: 0, total: 0 });
@@ -187,7 +197,7 @@ export default function App() {
     : { label: "Sealed, not synced", style: s.badgeWarn };
 
   return (
-    <SafeAreaView style={s.safe}>
+    <View style={[s.safe, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
 
       <View style={s.header}>
@@ -323,7 +333,7 @@ export default function App() {
           All data used in this demonstration is synthetic.
         </Text>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -348,7 +358,7 @@ const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#12120f" },
   header: {
     flexDirection: "row", alignItems: "center", gap: 10,
-    paddingHorizontal: 18, paddingVertical: 12,
+    paddingHorizontal: 18, paddingTop: 20, paddingBottom: 14,
     borderBottomWidth: 1, borderBottomColor: "#2a2a24",
   },
   title: { color: "#f6f6f2", fontSize: 22, fontWeight: "700", letterSpacing: -0.3 },
