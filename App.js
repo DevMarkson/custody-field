@@ -1,11 +1,8 @@
-// Custody: the field app.
+// Custody: field collection.
 //
-// Rule 06 of the brief, think about power and network cuts, is answered here
-// by architecture rather than by a paragraph. At a scene the officer taps
-// once, the file is fingerprinted on this device, and the record is written
-// to local storage. No network call is on that path. Sync happens later,
-// when a connection appears, and the report shows both clocks so that the
-// gap is visible rather than hidden.
+// Collection is entirely local: the file is fingerprinted on this device and
+// the record written to local storage, with no network call on that path.
+// Sync runs later, when a connection appears.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -26,8 +23,8 @@ import { sync, checkServer } from "./src/api.js";
 import { FadeIn, PendingBadge, ProgressBar, SkeletonList, StatusDot } from "./src/ui.js";
 
 const DEFAULTS = {
-  // Change this on demo day. It is the laptop's address on the local
-  // network, never localhost: localhost on a phone means the phone.
+  // The server's address on the local network. Never localhost, which on a
+  // handset resolves to the handset. Configurable at runtime in Setup.
   serverUrl: "http://172.20.10.6:4000",
   officerBadge: "NPF-22841",
   caseRef: "CID-2026-0041",
@@ -64,9 +61,8 @@ export default function App() {
     })();
   }, [refresh]);
 
-  // Poll the server so the officer can see whether a sync would succeed.
-  // The check is the same request the sync would make, so a green dot is a
-  // real answer and not a guess from a connectivity API.
+  // Polls with the same request a sync would make, so the indicator reflects
+  // reachability rather than a connectivity API's opinion.
   useEffect(() => {
     let cancelled = false;
     const probe = async () => {
@@ -82,8 +78,7 @@ export default function App() {
     return () => { cancelled = true; clearInterval(t); };
   }, [settings.serverUrl]);
 
-  // When a connection appears and something is queued, sync without being
-  // asked. The officer should not have to remember.
+  // Sync as soon as a connection appears and anything is queued.
   useEffect(() => {
     if (online && pending.total > 0 && !syncing) {
       clearTimeout(syncTimer.current);
@@ -97,7 +92,7 @@ export default function App() {
     await setSetting("settings", next);
   }
 
-  /** Collect: pick a file, fingerprint it here, seal it locally. */
+  /** Pick a file, fingerprint it on device, seal it locally. */
   async function collect() {
     try {
       const picked = await DocumentPicker.getDocumentAsync({
@@ -115,8 +110,7 @@ export default function App() {
           setBusy({ label: `Fingerprinting ${asset.name}`, chunks, totalChunks }),
       });
 
-      // GPS is optional and must never block sealing. A scene with no signal
-      // often has no fix either.
+      // Optional, and never allowed to block sealing.
       let coords = null;
       try {
         const perm = await Location.getForegroundPermissionsAsync();
@@ -147,8 +141,8 @@ export default function App() {
         lng: coords?.lng,
       });
 
-      // The local event hash is provisional. The server recomputes it over
-      // its own item and actor ids and that version is the record.
+      // Provisional. The server recomputes over its own ids and that is the
+      // record.
       const localHash = await eventHash({
         prevHash: ZERO_HASH,
         itemId: localId,
@@ -301,9 +295,7 @@ export default function App() {
           </Pressable>
         </View>
 
-        {/* The queue is read from SQLite, which is fast but not instant.
-            Showing the shape of the list is better than showing nothing and
-            then having rows appear under the officer's thumb. */}
+        {/* Shaped placeholder while the queue is read from SQLite. */}
         {!loaded && <SkeletonList count={2} />}
 
         {loaded && items.length === 0 && (
@@ -318,8 +310,7 @@ export default function App() {
           const status = statusOf(item);
           const chunks = JSON.parse(item.chunk_hashes).length;
           return (
-            // Newest first, so the item just sealed is the one that settles
-            // in at the top of the list the officer is already looking at.
+            // Newest first, so a newly sealed item settles in at the top.
             <FadeIn key={item.local_id} delay={Math.min(index * 55, 330)} style={s.item}>
               <View style={s.rowBetween}>
                 <Text style={s.itemRef}>{item.reference}</Text>

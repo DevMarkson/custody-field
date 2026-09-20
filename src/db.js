@@ -1,9 +1,7 @@
 // The local queue.
 //
-// Everything the officer does at a scene is written here first and to here
-// only. Nothing in the collection path waits on a network call, because at a
-// scene there may be no network for hours. Sync is a separate, later,
-// interruptible activity.
+// Collection writes here first and only here. No network call sits on the
+// collection path; sync is a separate, interruptible activity.
 
 import * as SQLite from "expo-sqlite";
 
@@ -152,7 +150,7 @@ export async function markEventsFailed(itemRefs, error) {
   );
 }
 
-/** Demo reset: clears the phone's local record only. */
+/** Clears this device's local record only. */
 export async function clearLocal() {
   const db = await getDb();
   await db.execAsync("DELETE FROM items; DELETE FROM events;");

@@ -1,26 +1,18 @@
 // On-device chunked hashing and the Merkle tree.
 //
-// This is the whole point of the field app. The fingerprint is taken here,
-// at the scene, on the collecting officer's own phone, before the file goes
-// anywhere else. Nothing between the scene and the server can alter the file
-// without it being detectable.
+// Must produce byte-identical results to the server's src/hash.js. Two rules
+// keep them in step, and both are asserted by the backend's parity suite:
 //
-// This file must produce byte-identical results to the server's hash.js.
-// Two rules keep them in step:
 //   1. a chunk hash is SHA-256 over the chunk's raw bytes
-//   2. every other hash is SHA-256 over a UTF-8 STRING of hex digits
-// Change either one on one side only and every fingerprint ever taken
-// becomes unverifiable.
+//   2. every other hash is SHA-256 over a UTF-8 string of hex digits
 //
-// SDK 57 note: expo-file-system's File.open() returns a FileHandle with a
-// seekable `offset` and `readBytes(length)`, so we read 4MB at a time and
-// never hold the whole file in memory. That is what makes the claim about a
-// 100GB extraction on a cheap phone true rather than aspirational.
+// File.open() returns a handle with a seekable offset, so chunks are read one
+// at a time and the whole file is never held in memory.
 
 import { File } from "expo-file-system";
 import * as Crypto from "expo-crypto";
 
-export const CHUNK_SIZE = 4 * 1024 * 1024; // 4MB, same as the server
+export const CHUNK_SIZE = 4 * 1024 * 1024; // must match the server
 export const ZERO_HASH = "0".repeat(64);
 
 const toHex = (buffer) =>
@@ -40,7 +32,7 @@ export async function sha256String(text) {
   });
 }
 
-/** Let the UI paint between chunks so the progress bar actually moves. */
+/** Yields between chunks so the progress bar can paint. */
 const yieldToUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 /**
@@ -67,8 +59,8 @@ export async function hashChunks(uri, { chunkSize = CHUNK_SIZE, onProgress } = {
       }
       await yieldToUi();
     }
-    // An empty file still has one chunk hash, of nothing, so that an empty
-    // file and a missing file are not the same thing.
+    // An empty file hashes to one chunk, so it is distinguishable from a
+    // missing file.
     if (hashes.length === 0) hashes.push(await sha256Bytes(new Uint8Array(0)));
   } finally {
     handle.close();
@@ -106,6 +98,6 @@ export async function fingerprintFile(uri, options = {}) {
   };
 }
 
-/** The short form shown on screen. A full hash on a phone is unreadable. */
+/** Short form for display; a full hash is unreadable on a handset. */
 export const shortHash = (hash) =>
   hash ? `${hash.slice(0, 8)} ${hash.slice(8, 16)}`.toUpperCase() : "";

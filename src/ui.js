@@ -1,33 +1,14 @@
-// Motion and loading states for the field app.
+// Motion and loading states.
 //
-// The register here is the same as the dashboard's: this is evidence
-// software, so movement explains rather than decorates. There are three
-// places it earns its keep.
-//
-//   The progress bar, because hashing a 30GB extraction takes real time and
-//   an officer standing at a scene needs to see it moving rather than wonder
-//   whether the phone has frozen.
-//
-//   A newly sealed item, because it arrives at the top of a list the officer
-//   is already looking at, and a row that appears with no transition reads as
-//   the list having jumped rather than something having been added.
-//
-//   The pending count, because it is the one thing on the screen that says
-//   work is outstanding.
-//
-// Everything else is still. No new dependency: React Native's Animated is
-// enough, and a hackathon demo should not be carrying Reanimated for a
-// handful of fades.
+// Movement is confined to three places where it carries information: hashing
+// progress, a newly sealed item arriving in the list, and the pending count.
+// Everything else is still. Built on React Native's Animated, so no additional
+// dependency.
 
 import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, Animated, Easing, StyleSheet, View } from "react-native";
 
-/**
- * Honour the system's reduce motion setting.
- *
- * Someone who has asked their phone to stop animating things has asked for a
- * reason, and an evidence app is not the place to overrule them.
- */
+/** Honours the system reduce motion setting. */
 export function useReduceMotion() {
   const [reduce, setReduce] = useState(false);
   useEffect(() => {
@@ -39,7 +20,7 @@ export function useReduceMotion() {
   return reduce;
 }
 
-/** Content settles into place instead of appearing abruptly. */
+/** Fades and lifts content into place. */
 export function FadeIn({ children, delay = 0, distance = 8, style }) {
   const reduce = useReduceMotion();
   const t = useRef(new Animated.Value(reduce ? 1 : 0)).current;
@@ -66,10 +47,7 @@ export function FadeIn({ children, delay = 0, distance = 8, style }) {
   );
 }
 
-/**
- * A skeleton block. Breathes rather than flashes: a slow opacity cycle is
- * calmer than a sweeping highlight and costs no gradient library.
- */
+/** Placeholder block. A slow opacity cycle, which needs no gradient library. */
 export function Skeleton({ width, height = 12, radius = 4, style }) {
   const reduce = useReduceMotion();
   const pulse = useRef(new Animated.Value(0.45)).current;
@@ -93,10 +71,7 @@ export function Skeleton({ width, height = 12, radius = 4, style }) {
   );
 }
 
-/**
- * One placeholder item card, laid out to the same shape as a sealed item so
- * the list does not jump when the real rows arrive.
- */
+/** Shaped like a sealed item card, so the list does not jump on load. */
 export function SkeletonItem({ delay = 0 }) {
   return (
     <FadeIn delay={delay} style={s.card}>
@@ -121,11 +96,8 @@ export function SkeletonList({ count = 3 }) {
 }
 
 /**
- * The hashing progress bar.
- *
- * The fill animates towards each new value rather than snapping to it, so
- * that eight chunks do not read as eight jerks. Width cannot be driven
- * natively, but this is one thin bar and the cost is nil.
+ * Hashing progress. The fill animates towards each value rather than snapping,
+ * so discrete chunk completions read as continuous progress.
  */
 export function ProgressBar({ progress, indeterminate = false }) {
   const reduce = useReduceMotion();
@@ -142,8 +114,7 @@ export function ProgressBar({ progress, indeterminate = false }) {
     }).start();
   }, [progress, indeterminate, reduce, w]);
 
-  // Before the first chunk lands there is no percentage to show, so the bar
-  // says "working" rather than sitting empty and looking broken.
+  // No percentage exists before the first chunk completes.
   useEffect(() => {
     if (!indeterminate || reduce) return;
     const loop = Animated.loop(
@@ -169,12 +140,7 @@ export function ProgressBar({ progress, indeterminate = false }) {
   );
 }
 
-/**
- * The pending count.
- *
- * Breathes slowly while anything is unsynced and stops the moment the queue
- * is clear. Something that pulses forever stops being a signal.
- */
+/** Pulses while anything is unsynced. Rendered only when the queue is not empty. */
 export function PendingBadge({ children, style, textStyle }) {
   const reduce = useReduceMotion();
   const pulse = useRef(new Animated.Value(1)).current;
@@ -196,7 +162,7 @@ export function PendingBadge({ children, style, textStyle }) {
   );
 }
 
-/** The connection dot, which grows briefly when the server becomes reachable. */
+/** Connection indicator, which pulses once when the server becomes reachable. */
 export function StatusDot({ online, style, onlineStyle, offlineStyle }) {
   const reduce = useReduceMotion();
   const scale = useRef(new Animated.Value(1)).current;

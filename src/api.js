@@ -1,10 +1,7 @@
 // The sync client.
 //
-// Sync is deferred, batched and interruptible. It never blocks collection.
-// Note what is NOT uploaded: the evidence file itself. Only the fingerprint
-// and the metadata travel. That avoids request size limits entirely and is
-// closer to how real evidence handling works, where the exhibit goes to the
-// store and the paperwork goes to the registry.
+// Deferred, batched and interruptible, and never on the collection path. The
+// evidence file is not uploaded: only the fingerprint and metadata travel.
 
 import {
   pendingPayload, markItemSynced, markItemFailed,
@@ -47,11 +44,9 @@ export async function fetchCases(base) {
 /**
  * Push everything queued on this device.
  *
- * The device deliberately does NOT send its own event hashes. It cannot know
- * the server's item and actor ids until the item exists there, so any hash it
- * computed would be over different inputs and would be rejected. The device's
- * local hash is for showing a sealed state offline; the server's is the
- * record. This is the honest division: the phone claims, the server records.
+ * Event hashes are not sent. The device cannot know the server's item and
+ * actor ids before the item exists there, so any hash it computed would be
+ * over different inputs.
  */
 export async function sync(base) {
   const { items, events } = await pendingPayload();
@@ -68,8 +63,7 @@ export async function sync(base) {
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    // The whole batch failed: no network, or the server rejected it. Mark
-    // everything failed and leave it queued. Nothing is lost.
+    // The batch failed. Everything stays queued.
     await markItemFailed(items[0]?.local_id ?? "", err.message);
     for (const i of items) await markItemFailed(i.local_id, err.message);
     await markEventsFailed(events.map((e) => e.item_ref), err.message);

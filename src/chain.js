@@ -1,9 +1,7 @@
-// The custody chain, device side.
+// Device side event hashing.
 //
-// The device computes an event hash so it can show a sealed state offline
-// and so the server has something to check it against. The server recomputes
-// every hash on arrival and rejects the batch if ours disagrees. Ours is a
-// claim; the server's is the record.
+// Computed so a sealed state can be shown offline. The server recomputes every
+// hash on arrival and its result is the record.
 
 import { sha256String, ZERO_HASH } from "./hash.js";
 
