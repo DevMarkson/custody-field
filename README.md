@@ -1,59 +1,162 @@
-# Custody: field app
+# Custody Field App
 
-Collection at the scene. React Native, Expo SDK 57. Part of **Custody**, ICSC 2026 Track H;
-the backend and the full project README are in `hackathonBackend`.
+Evidence collection at the scene. Fingerprints a file on the device before it is handled by
+anyone else, queues the record locally, and syncs when a connection becomes available.
 
-All data used in the demonstration is synthetic.
+Part of **Custody**, ICSC 2026 Universities Hackathon, Track H, by Team Captain.
+The API and the project overview are in [`hackathonBackend`](../hackathonBackend).
 
-## Why this app exists
+---
 
-The brief asks us to think about power and network cuts. This is where that is answered by
-architecture rather than by a paragraph. At a scene the officer taps once, the file is
-fingerprinted **on this device**, and the record is written to local storage. No network call
-is anywhere on that path. Sync is a separate, later, interruptible activity.
+## Contents
 
-That ordering is the whole claim: the fingerprint exists before the file has been anywhere,
-so nothing between the scene and the server can alter it undetectably.
+- [Overview](#overview)
+- [Tech stack](#tech-stack)
+- [Prerequisites](#prerequisites)
+- [Getting started](#getting-started)
+- [Configuration](#configuration)
+- [How it works](#how-it-works)
+- [Project structure](#project-structure)
+- [Implementation notes](#implementation-notes)
 
-## Running
+---
+
+## Overview
+
+Collection is entirely local. The officer taps once, the file is fingerprinted on the device,
+and the record is written to SQLite. No network call sits on that path, because at a scene
+there may be no network for hours. Sync is a separate, deferred, interruptible activity.
+
+That ordering is the point: the fingerprint exists before the file has been anywhere, so
+nothing between the scene and the server can alter it undetectably.
+
+---
+
+## Tech stack
+
+| Layer | Choice |
+| --- | --- |
+| Framework | React Native 0.86, Expo SDK 57 |
+| Hashing | `expo-crypto` (SHA-256) |
+| File access | `expo-file-system` (seekable handles) |
+| Local storage | `expo-sqlite` |
+| Capture | `expo-document-picker`, `expo-image-picker` |
+| Location | `expo-location` (optional) |
+
+No animation library: motion uses React Native's built in `Animated`.
+
+---
+
+## Prerequisites
+
+- Node.js 20 or later
+- The Custody API running and reachable on the same network
+- Expo Go, or a simulator
+
+---
+
+## Getting started
 
 ```bash
 npm install
 npx expo start
 ```
 
-Then open it on a device or simulator. Tap **Setup** and set:
+Open on a device or simulator, then tap **Setup** and configure the server address.
 
-- **Server address** — the laptop's address on the local network, as the API prints on
-  startup, e.g. `http://172.20.10.6:4000`. Never `localhost`: on a phone, localhost is the
-  phone.
-- **Officer badge** — e.g. `NPF-22841`
-- **Case reference** — e.g. `CID-2026-0041`
+---
+
+## Configuration
+
+Set in the app under **Setup**, and persisted to SQLite.
+
+| Setting | Example | Notes |
+| --- | --- | --- |
+| Server address | `http://192.168.1.24:4000` | The API's LAN address. Never `localhost`: on a handset that resolves to the handset. |
+| Officer badge | `NPF-22841` | Must exist on the server |
+| Case reference | `CID-2026-0041` | Must exist on the server |
+
+The API prints its LAN address on startup. Defaults are in `DEFAULTS` in `App.js`.
+
+---
 
 ## How it works
 
-| Concern | Approach |
-|---|---|
-| Hashing | `expo-file-system` `File.open()` gives a seekable handle, so 4MB chunks are read with `handle.offset` and `readBytes()` and the whole file is never in memory |
-| Digest | `expo-crypto` `Crypto.digest()` over raw bytes for chunk hashes, `digestStringAsync` over hex strings for the Merkle tree and the chain |
-| Queue | `expo-sqlite`, written before anything else happens |
-| Location | `expo-location`, optional, and never allowed to block sealing |
-| Sync | batched, retried, and automatic once the server becomes reachable |
+### Collection
 
-Each item shows exactly one of **Sealed, not synced**, **Synced**, or **Sync failed**, and the
-header carries a count of everything still pending.
+1. Pick a file.
+2. Hash it on device in 4MB chunks, with progress shown per chunk.
+3. Build a Merkle root over the chunk hashes.
+4. Capture collector, device time and, if available, GPS.
+5. Write the sealed record and queue a `collected` event in SQLite.
+6. Display the short fingerprint and a **Sealed, not synced** badge.
 
-### Parity with the server
+Steps 1 to 6 require no network. GPS is optional and never blocks sealing.
 
-The device and the server must produce identical fingerprints or nothing verifies. Two rules
-keep them in step, and both are asserted by `hackathonBackend/test/device-parity.test.mjs`:
+### Sync
 
-1. a chunk hash is SHA-256 over the chunk's **raw bytes**
-2. every other hash is SHA-256 over a UTF-8 **string of hex digits**
+Batched, retried and automatic once the server becomes reachable. Each item shows exactly one
+of **Sealed, not synced**, **Synced** or **Sync failed**, and the header carries a count of
+everything outstanding.
 
-### The device does not sign its own events
+The evidence file is never uploaded. Only the root hash, the ordered chunk hashes and metadata
+travel, which avoids request size limits and mirrors evidence handling, where the exhibit and
+the paperwork move separately.
 
-It computes a provisional event hash so it can show a sealed state while offline, but it does
-not send it. A device cannot know the server's item and actor ids before the item exists
-there, so any hash it computed would be over different inputs. The server recomputes every
-hash on arrival. The phone claims; the server records.
+### Reachability
+
+The status indicator polls `/api/health`, the same request a sync would make, so it reflects
+actual reachability rather than a connectivity API's opinion.
+
+---
+
+## Project structure
+
+```
+App.js              screens, collection flow, sync orchestration
+src/
+  hash.js           chunked hashing and the Merkle tree
+  chain.js          device side event hashing
+  db.js             SQLite queue
+  api.js            sync client
+  payload.js        pure sync payload builder
+  ui.js             motion and loading states
+```
+
+---
+
+## Implementation notes
+
+**Parity with the server is mandatory.** Both sides must produce identical fingerprints or
+nothing verifies. Two rules hold them in step:
+
+1. A chunk hash is SHA-256 over the chunk's **raw bytes**.
+2. Every other hash is SHA-256 over a UTF-8 **string of hex digits**.
+
+`hackathonBackend/test/device-parity.test.mjs` asserts this against the server implementation,
+including tree shape at 1, 2, 3, 5, 7, 8 and 9 chunks.
+
+**Constant memory.** `expo-file-system`'s `File.open()` returns a handle with a seekable
+`offset`, so chunks are read one at a time with `readBytes()` and the whole file is never held
+in memory. `readAsStringAsync` is deprecated in SDK 57 and is not used.
+
+**The device does not sign its own events.** It computes a provisional event hash so a sealed
+state can be shown offline, but does not send it: it cannot know the server's item and actor
+identifiers before the item exists there, so any hash it computed would be over different
+inputs. The server recomputes on arrival and its result is the record.
+
+**`storagePath` is sent as null.** The handset holds the file at a private URI and knows
+nothing of the evidence store's layout. The path is recorded separately on deposit. A guess
+here would make an undeposited item indistinguishable from a deleted one.
+
+**`src/payload.js` is deliberately free of SQLite and `fetch`,** so the backend's test suite
+imports the real module and asserts its output against the live API rather than testing a copy
+that could drift.
+
+**Motion** is confined to hashing progress, a newly sealed item arriving, and the pending
+count. The system reduce motion setting is honoured.
+
+> The interface has not been verified on a physical device. The app bundles cleanly and its
+> logic is covered by the parity, sync and mobile suites, but nobody has yet watched it run.
+
+All data used in demonstration is synthetic. See the backend README for provenance.
