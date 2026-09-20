@@ -1,8 +1,3 @@
-// Device side event hashing.
-//
-// Computed so a sealed state can be shown offline. The server recomputes every
-// hash on arrival and its result is the record.
-
 import { sha256String, ZERO_HASH } from "./hash.js";
 
 export { ZERO_HASH };

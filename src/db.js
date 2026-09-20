@@ -1,8 +1,3 @@
-// The local queue.
-//
-// Collection writes here first and only here. No network call sits on the
-// collection path; sync is a separate, interruptible activity.
-
 import * as SQLite from "expo-sqlite";
 
 let dbPromise;
@@ -150,7 +145,6 @@ export async function markEventsFailed(itemRefs, error) {
   );
 }
 
-/** Clears this device's local record only. */
 export async function clearLocal() {
   const db = await getDb();
   await db.execAsync("DELETE FROM items; DELETE FROM events;");

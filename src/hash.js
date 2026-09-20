@@ -1,18 +1,7 @@
-// On-device chunked hashing and the Merkle tree.
-//
-// Must produce byte-identical results to the server's src/hash.js. Two rules
-// keep them in step, and both are asserted by the backend's parity suite:
-//
-//   1. a chunk hash is SHA-256 over the chunk's raw bytes
-//   2. every other hash is SHA-256 over a UTF-8 string of hex digits
-//
-// File.open() returns a handle with a seekable offset, so chunks are read one
-// at a time and the whole file is never held in memory.
-
 import { File } from "expo-file-system";
 import * as Crypto from "expo-crypto";
 
-export const CHUNK_SIZE = 4 * 1024 * 1024; // must match the server
+export const CHUNK_SIZE = 4 * 1024 * 1024;
 export const ZERO_HASH = "0".repeat(64);
 
 const toHex = (buffer) =>
@@ -20,25 +9,18 @@ const toHex = (buffer) =>
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
-/** SHA-256 over raw bytes. Used for chunk hashes only. */
 export async function sha256Bytes(bytes) {
   return toHex(await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes));
 }
 
-/** SHA-256 over a UTF-8 string. Used for the tree and the chain. */
 export async function sha256String(text) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, text, {
     encoding: Crypto.CryptoEncoding.HEX,
   });
 }
 
-/** Yields between chunks so the progress bar can paint. */
 const yieldToUi = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-/**
- * Hash a file in fixed size chunks, seeking rather than loading.
- * onProgress receives { chunks, totalChunks, bytes, totalBytes }.
- */
 export async function hashChunks(uri, { chunkSize = CHUNK_SIZE, onProgress } = {}) {
   const file = new File(uri);
   const totalBytes = file.size ?? 0;
@@ -59,8 +41,6 @@ export async function hashChunks(uri, { chunkSize = CHUNK_SIZE, onProgress } = {
       }
       await yieldToUi();
     }
-    // An empty file hashes to one chunk, so it is distinguishable from a
-    // missing file.
     if (hashes.length === 0) hashes.push(await sha256Bytes(new Uint8Array(0)));
   } finally {
     handle.close();
@@ -69,10 +49,6 @@ export async function hashChunks(uri, { chunkSize = CHUNK_SIZE, onProgress } = {
   return { chunkHashes: hashes, fileSizeBytes: totalBytes, chunkSizeBytes: chunkSize };
 }
 
-/**
- * Build a binary Merkle tree over the chunk hashes and return the root.
- * A node with no sibling is promoted unchanged to the next level.
- */
 export async function merkleRoot(chunkHashes) {
   if (chunkHashes.length === 0) return sha256String("");
   let level = [...chunkHashes];
@@ -80,14 +56,13 @@ export async function merkleRoot(chunkHashes) {
     const next = [];
     for (let i = 0; i < level.length; i += 2) {
       if (i + 1 < level.length) next.push(await sha256String(level[i] + level[i + 1]));
-      else next.push(level[i]); // odd node promoted
+      else next.push(level[i]);
     }
     level = next;
   }
   return level[0];
 }
 
-/** Fingerprint a file: chunk hashes plus the Merkle root over them. */
 export async function fingerprintFile(uri, options = {}) {
   const { chunkHashes, fileSizeBytes, chunkSizeBytes } = await hashChunks(uri, options);
   return {
@@ -98,6 +73,5 @@ export async function fingerprintFile(uri, options = {}) {
   };
 }
 
-/** Short form for display; a full hash is unreadable on a handset. */
 export const shortHash = (hash) =>
   hash ? `${hash.slice(0, 8)} ${hash.slice(8, 16)}`.toUpperCase() : "";

@@ -1,9 +1,3 @@
-// Custody: field collection.
-//
-// Collection is entirely local: the file is fingerprinted on this device and
-// the record written to local storage, with no network call on that path.
-// Sync runs later, when a connection appears.
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert, Pressable, SafeAreaView, ScrollView,
@@ -23,8 +17,6 @@ import { sync, checkServer } from "./src/api.js";
 import { FadeIn, PendingBadge, ProgressBar, SkeletonList, StatusDot } from "./src/ui.js";
 
 const DEFAULTS = {
-  // The server's address on the local network. Never localhost, which on a
-  // handset resolves to the handset. Configurable at runtime in Setup.
   serverUrl: "http://172.20.10.6:4000",
   officerBadge: "NPF-22841",
   caseRef: "CID-2026-0041",
@@ -38,7 +30,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [pending, setPending] = useState({ items: 0, events: 0, total: 0 });
   const [online, setOnline] = useState(null);
-  const [busy, setBusy] = useState(null);      // { label, chunks, totalChunks }
+  const [busy, setBusy] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [notice, setNotice] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -61,8 +53,6 @@ export default function App() {
     })();
   }, [refresh]);
 
-  // Polls with the same request a sync would make, so the indicator reflects
-  // reachability rather than a connectivity API's opinion.
   useEffect(() => {
     let cancelled = false;
     const probe = async () => {
@@ -78,7 +68,6 @@ export default function App() {
     return () => { cancelled = true; clearInterval(t); };
   }, [settings.serverUrl]);
 
-  // Sync as soon as a connection appears and anything is queued.
   useEffect(() => {
     if (online && pending.total > 0 && !syncing) {
       clearTimeout(syncTimer.current);
@@ -92,7 +81,6 @@ export default function App() {
     await setSetting("settings", next);
   }
 
-  /** Pick a file, fingerprint it on device, seal it locally. */
   async function collect() {
     try {
       const picked = await DocumentPicker.getDocumentAsync({
@@ -110,7 +98,6 @@ export default function App() {
           setBusy({ label: `Fingerprinting ${asset.name}`, chunks, totalChunks }),
       });
 
-      // Optional, and never allowed to block sealing.
       let coords = null;
       try {
         const perm = await Location.getForegroundPermissionsAsync();
@@ -118,7 +105,7 @@ export default function App() {
           const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
           coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         }
-      } catch { /* no fix, carry on */ }
+      } catch {}
 
       const localId = uid();
       const reference = `EX-FIELD-${Date.now().toString().slice(-6)}`;
@@ -141,8 +128,6 @@ export default function App() {
         lng: coords?.lng,
       });
 
-      // Provisional. The server recomputes over its own ids and that is the
-      // record.
       const localHash = await eventHash({
         prevHash: ZERO_HASH,
         itemId: localId,
@@ -295,7 +280,6 @@ export default function App() {
           </Pressable>
         </View>
 
-        {/* Shaped placeholder while the queue is read from SQLite. */}
         {!loaded && <SkeletonList count={2} />}
 
         {loaded && items.length === 0 && (
@@ -310,7 +294,6 @@ export default function App() {
           const status = statusOf(item);
           const chunks = JSON.parse(item.chunk_hashes).length;
           return (
-            // Newest first, so a newly sealed item settles in at the top.
             <FadeIn key={item.local_id} delay={Math.min(index * 55, 330)} style={s.item}>
               <View style={s.rowBetween}>
                 <Text style={s.itemRef}>{item.reference}</Text>

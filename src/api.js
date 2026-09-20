@@ -1,8 +1,3 @@
-// The sync client.
-//
-// Deferred, batched and interruptible, and never on the collection path. The
-// evidence file is not uploaded: only the fingerprint and metadata travel.
-
 import {
   pendingPayload, markItemSynced, markItemFailed,
   markEventsSynced, markEventsFailed,
@@ -41,13 +36,6 @@ export async function fetchCases(base) {
   return request(base, "/api/cases");
 }
 
-/**
- * Push everything queued on this device.
- *
- * Event hashes are not sent. The device cannot know the server's item and
- * actor ids before the item exists there, so any hash it computed would be
- * over different inputs.
- */
 export async function sync(base) {
   const { items, events } = await pendingPayload();
   if (items.length === 0 && events.length === 0) {
@@ -63,7 +51,6 @@ export async function sync(base) {
       body: JSON.stringify(payload),
     });
   } catch (err) {
-    // The batch failed. Everything stays queued.
     await markItemFailed(items[0]?.local_id ?? "", err.message);
     for (const i of items) await markItemFailed(i.local_id, err.message);
     await markEventsFailed(events.map((e) => e.item_ref), err.message);
