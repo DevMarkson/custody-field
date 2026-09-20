@@ -17,7 +17,7 @@ import { sync, checkServer } from "./src/api.js";
 import { FadeIn, PendingBadge, ProgressBar, SkeletonList, StatusDot } from "./src/ui.js";
 
 const DEFAULTS = {
-  serverUrl: "http://172.20.10.6:4000",
+  serverUrl: "https://custody-api-mvgr.onrender.com",
   officerBadge: "NPF-22841",
   caseRef: "CID-2026-0041",
 };

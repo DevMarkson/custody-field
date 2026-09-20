@@ -72,7 +72,7 @@ Set in the app under **Setup**, and persisted to SQLite.
 
 | Setting | Example | Notes |
 | --- | --- | --- |
-| Server address | `http://192.168.1.24:4000` | The API's LAN address. Never `localhost`: on a handset that resolves to the handset. |
+| Server address | `https://custody-api-mvgr.onrender.com` | The hosted API, and the default. For a local backend use the machine's LAN address, such as `http://192.168.1.24:4000`. Never `localhost`: on a handset that resolves to the handset. |
 | Officer badge | `NPF-22841` | Must exist on the server |
 | Case reference | `CID-2026-0041` | Must exist on the server |
 
