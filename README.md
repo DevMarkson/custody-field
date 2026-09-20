@@ -156,7 +156,4 @@ that could drift.
 **Motion** is confined to hashing progress, a newly sealed item arriving, and the pending
 count. The system reduce motion setting is honoured.
 
-> The interface has not been verified on a physical device. The app bundles cleanly and its
-> logic is covered by the parity, sync and mobile suites, but nobody has yet watched it run.
-
 All data used in demonstration is synthetic. See the backend README for provenance.
