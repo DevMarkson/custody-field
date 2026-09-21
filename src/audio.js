@@ -53,12 +53,15 @@ export async function startRecording({ onProgress } = {}) {
     throw new Error("Microphone permission was denied. Please allow microphone access to record audio evidence.");
   }
 
-  // Enable background recording and background audio session
+  // Enable background recording with exclusive doNotMix audio focus
+  // On iOS, mixWithOthers causes iOS CoreAudio to silence the microphone in the background.
+  // doNotMix ensures continuous background capture like native voice memos.
   await setAudioModeAsync({
     allowsRecording: true,
     allowsBackgroundRecording: true,
     shouldPlayInBackground: true,
     playsInSilentMode: true,
+    interruptionMode: "doNotMix",
   });
 
   const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -106,7 +109,9 @@ export async function stopRecording(recorder) {
     await setAudioModeAsync({
       allowsRecording: false,
       allowsBackgroundRecording: false,
+      shouldPlayInBackground: true,
       playsInSilentMode: true,
+      interruptionMode: "mixWithOthers",
     });
   } catch {}
 
@@ -126,6 +131,9 @@ export async function cancelRecording(recorder) {
     await setAudioModeAsync({
       allowsRecording: false,
       allowsBackgroundRecording: false,
+      shouldPlayInBackground: true,
+      playsInSilentMode: true,
+      interruptionMode: "mixWithOthers",
     });
   } catch {}
 }
