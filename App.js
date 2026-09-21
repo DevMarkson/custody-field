@@ -7,6 +7,7 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { StatusBar } from "expo-status-bar";
 import * as DocumentPicker from "expo-document-picker";
 import * as Location from "expo-location";
+import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 
 import { fingerprintFile, shortHash, ZERO_HASH } from "./src/hash.js";
 import { eventHash } from "./src/chain.js";
@@ -16,6 +17,10 @@ import {
 } from "./src/db.js";
 import { sync, checkServer } from "./src/api.js";
 import { FadeIn, PendingBadge, ProgressBar, SkeletonList, StatusDot } from "./src/ui.js";
+import {
+  isAudioFile, formatDuration, startRecording, stopRecording,
+  cancelRecording, inspectAudioDuration,
+} from "./src/audio.js";
 
 const DEFAULTS = {
   serverUrl: "https://custody-api-mvgr.onrender.com",
@@ -46,11 +51,23 @@ function FieldApp() {
   const [showSettings, setShowSettings] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [description, setDescription] = useState("");
+  const [recordingState, setRecordingState] = useState(null);
+  const recordingRef = useRef(null);
+  const recordingTimer = useRef(null);
   const syncTimer = useRef(null);
 
   const refresh = useCallback(async () => {
     setItems(await listItems());
     setPending(await pendingCounts());
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      clearInterval(recordingTimer.current);
+      if (recordingRef.current) {
+        cancelRecording(recordingRef.current).catch(() => {});
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -93,21 +110,14 @@ function FieldApp() {
     await setSetting("settings", next);
   }
 
-  async function collect() {
+  async function sealAsset({ name, uri, mimeType, durationMs = null }) {
     try {
-      const picked = await DocumentPicker.getDocumentAsync({
-        type: "*/*",
-        copyToCacheDirectory: true,
-      });
-      if (picked.canceled) return;
-      const asset = picked.assets[0];
-
       const collectedAt = new Date().toISOString();
-      setBusy({ label: `Fingerprinting ${asset.name}`, chunks: 0, totalChunks: 1 });
+      setBusy({ label: `Fingerprinting ${name}`, chunks: 0, totalChunks: 1 });
 
-      const fp = await fingerprintFile(asset.uri, {
+      const fp = await fingerprintFile(uri, {
         onProgress: ({ chunks, totalChunks }) =>
-          setBusy({ label: `Fingerprinting ${asset.name}`, chunks, totalChunks }),
+          setBusy({ label: `Fingerprinting ${name}`, chunks, totalChunks }),
       });
 
       let coords = null;
@@ -119,18 +129,26 @@ function FieldApp() {
         }
       } catch {}
 
+      let resolvedDuration = durationMs;
+      const isAudio = isAudioFile(mimeType, name);
+      if (resolvedDuration == null && isAudio) {
+        resolvedDuration = await inspectAudioDuration(uri);
+      }
+
       const localId = uid();
-      const reference = `EX-FIELD-${Date.now().toString().slice(-6)}`;
+      const prefix = isAudio ? "EX-AUDIO-" : "EX-FIELD-";
+      const reference = `${prefix}${Date.now().toString().slice(-6)}`;
 
       await insertSealedItem({
         localId,
         reference,
         caseRef: settings.caseRef,
-        description: description.trim() || asset.name,
-        fileName: asset.name,
-        fileUri: asset.uri,
+        description: description.trim() || (isAudio ? `Audio statement (${formatDuration(resolvedDuration)})` : name),
+        fileName: name,
+        fileUri: uri,
         fileSizeBytes: fp.fileSizeBytes,
-        mimeType: asset.mimeType,
+        mimeType: mimeType || (isAudio ? "audio/m4a" : null),
+        durationMs: resolvedDuration,
         rootHash: fp.rootHash,
         chunkSizeBytes: fp.chunkSizeBytes,
         chunkHashes: fp.chunkHashes,
@@ -149,13 +167,18 @@ function FieldApp() {
         fileHash: fp.rootHash,
       });
 
+      const noteParts = [
+        isAudio ? `Audio evidence (${formatDuration(resolvedDuration)}) collected in the field` : "Collected in the field",
+        coords ? "position recorded" : null,
+      ].filter(Boolean).join(", ");
+
       await queueEvent({
         localId: uid(),
         itemLocal: localId,
         itemRef: reference,
         action: "collected",
         actorBadge: settings.officerBadge,
-        note: coords ? "Collected in the field, position recorded" : "Collected in the field",
+        note: noteParts,
         deviceTime: collectedAt,
         localHash,
       });
@@ -171,6 +194,83 @@ function FieldApp() {
       setBusy(null);
       Alert.alert("Could not seal the item", String(err.message ?? err));
     }
+  }
+
+  async function collectFile() {
+    try {
+      const picked = await DocumentPicker.getDocumentAsync({
+        type: "*/*",
+        copyToCacheDirectory: true,
+      });
+      if (picked.canceled) return;
+      const asset = picked.assets[0];
+
+      let durationMs = null;
+      if (isAudioFile(asset.mimeType, asset.name)) {
+        durationMs = await inspectAudioDuration(asset.uri);
+      }
+
+      await sealAsset({
+        name: asset.name,
+        uri: asset.uri,
+        mimeType: asset.mimeType,
+        durationMs,
+      });
+    } catch (err) {
+      Alert.alert("Could not select file", String(err.message ?? err));
+    }
+  }
+
+  async function handleStartRecording() {
+    try {
+      const rec = await startRecording({
+        onProgress: (millis) => {
+          setRecordingState((prev) => (prev ? { ...prev, durationMs: millis } : null));
+        },
+      });
+      recordingRef.current = rec;
+      const startTime = Date.now();
+      setRecordingState({ durationMs: 0 });
+      clearInterval(recordingTimer.current);
+      recordingTimer.current = setInterval(() => {
+        setRecordingState((prev) => (prev ? { ...prev, durationMs: Date.now() - startTime } : null));
+      }, 500);
+    } catch (err) {
+      Alert.alert("Recording Error", err.message ?? String(err));
+    }
+  }
+
+  async function handleStopAndSealRecording() {
+    clearInterval(recordingTimer.current);
+    if (!recordingRef.current) return;
+    const rec = recordingRef.current;
+    recordingRef.current = null;
+    const result = await stopRecording(rec);
+    setRecordingState(null);
+
+    if (!result?.uri) {
+      Alert.alert("Recording Error", "No audio was captured.");
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[-:T]/g, "").slice(0, 14);
+    const fileName = `AUDIO-${timestamp}.m4a`;
+
+    await sealAsset({
+      name: fileName,
+      uri: result.uri,
+      mimeType: "audio/m4a",
+      durationMs: result.durationMillis,
+    });
+  }
+
+  async function handleCancelRecording() {
+    clearInterval(recordingTimer.current);
+    if (!recordingRef.current) return;
+    const rec = recordingRef.current;
+    recordingRef.current = null;
+    await cancelRecording(rec);
+    setRecordingState(null);
   }
 
   async function runSync(silent = false) {
@@ -247,11 +347,52 @@ function FieldApp() {
             placeholder="What is this item?"
             placeholderTextColor="#8a8a80"
           />
-          <Pressable style={[s.primary, busy && s.primaryDisabled]} onPress={collect} disabled={!!busy}>
-            <Text style={s.primaryText}>
-              {busy ? "Fingerprinting" : "Collect evidence"}
-            </Text>
-          </Pressable>
+
+          {recordingState ? (
+            <View style={s.recordingBox}>
+              <View style={s.recordingTop}>
+                <View style={s.recIndicator}>
+                  <View style={s.recPulseDot} />
+                  <Text style={s.recRecordingLabel}>LIVE AUDIO RECORDING</Text>
+                </View>
+                <Text style={s.recDurationText}>{formatDuration(recordingState.durationMs)}</Text>
+              </View>
+              <View style={s.recActionsRow}>
+                <Pressable
+                  style={s.recStopBtn}
+                  onPress={handleStopAndSealRecording}
+                  disabled={!!busy}
+                >
+                  <Text style={s.recStopBtnText}>⏹ Stop & Seal</Text>
+                </Pressable>
+                <Pressable
+                  style={s.recCancelBtn}
+                  onPress={handleCancelRecording}
+                  disabled={!!busy}
+                >
+                  <Text style={s.recCancelBtnText}>Discard</Text>
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <View style={s.actionBtnRow}>
+              <Pressable
+                style={[s.primary, s.halfBtn, busy && s.primaryDisabled]}
+                onPress={collectFile}
+                disabled={!!busy}
+              >
+                <Text style={s.primaryText}>📁 Choose file</Text>
+              </Pressable>
+              <Pressable
+                style={[s.audioRecordBtn, s.halfBtn, busy && s.primaryDisabled]}
+                onPress={handleStartRecording}
+                disabled={!!busy}
+              >
+                <Text style={s.audioRecordBtnText}>🎙 Record audio</Text>
+              </Pressable>
+            </View>
+          )}
+
           <Text style={s.hint}>
             The fingerprint is taken here, on this device, before the file goes anywhere.
             This works with no network.
@@ -294,7 +435,7 @@ function FieldApp() {
         {loaded && items.length === 0 && (
           <FadeIn>
             <Text style={s.empty}>
-              Nothing collected on this device yet. Tap Collect evidence to seal an item.
+              Nothing collected on this device yet. Tap Choose file or Record audio to seal an item.
             </Text>
           </FadeIn>
         )}
@@ -302,6 +443,7 @@ function FieldApp() {
         {items.map((item, index) => {
           const status = statusOf(item);
           const chunks = JSON.parse(item.chunk_hashes).length;
+          const isAudio = isAudioFile(item.mime_type, item.file_name);
           return (
             <FadeIn key={item.local_id} delay={Math.min(index * 55, 330)} style={s.item}>
               <View style={s.rowBetween}>
@@ -312,9 +454,12 @@ function FieldApp() {
               </View>
               <Text style={s.itemDesc}>{item.description}</Text>
               <Text style={s.itemMeta}>
-                {item.file_name} · {(item.file_size_bytes / 1024 / 1024).toFixed(2)} MB · {chunks} chunk{chunks === 1 ? "" : "s"}
+                {item.file_name} · {(item.file_size_bytes / 1024 / 1024).toFixed(2)} MB{item.duration_ms ? ` · ${formatDuration(item.duration_ms)} audio` : ""} · {chunks} chunk{chunks === 1 ? "" : "s"}
               </Text>
               <Text style={s.fingerprint}>{shortHash(item.root_hash)}</Text>
+              {isAudio && (
+                <AudioPlayerRow uri={item.file_uri} durationMs={item.duration_ms} />
+              )}
               <Text style={s.itemMeta}>
                 Device clock {new Date(item.collected_at).toLocaleString()}
               </Text>
@@ -332,6 +477,47 @@ function FieldApp() {
           All data used in this demonstration is synthetic.
         </Text>
       </ScrollView>
+    </View>
+  );
+}
+
+function AudioPlayerRow({ uri, durationMs }) {
+  const player = useAudioPlayer(uri, { updateInterval: 250 });
+  const status = useAudioPlayerStatus(player);
+
+  const durationSec = status.duration || (durationMs ? durationMs / 1000 : 0);
+  const currentSec = status.currentTime || 0;
+  const progress = durationSec > 0 ? Math.min(currentSec / durationSec, 1) : 0;
+
+  const togglePlay = () => {
+    try {
+      if (status.playing) {
+        player.pause();
+      } else {
+        if (currentSec >= durationSec && durationSec > 0) {
+          player.seekTo(0);
+        }
+        player.play();
+      }
+    } catch (err) {
+      Alert.alert("Playback failed", "Unable to play audio: " + (err.message ?? err));
+    }
+  };
+
+  return (
+    <View style={s.audioPlayer}>
+      <Pressable onPress={togglePlay} style={s.audioPlayBtn} hitSlop={8}>
+        <Text style={s.audioPlayIcon}>{status.playing ? "❚❚" : "▶"}</Text>
+      </Pressable>
+      <View style={{ flex: 1 }}>
+        <View style={s.audioTrack}>
+          <View style={[s.audioProgress, { width: `${(progress * 100).toFixed(1)}%` }]} />
+        </View>
+        <View style={s.audioTimeRow}>
+          <Text style={s.audioTimeText}>{formatDuration(Math.round(currentSec * 1000))}</Text>
+          <Text style={s.audioTimeText}>{formatDuration(Math.round(durationSec * 1000))}</Text>
+        </View>
+      </View>
     </View>
   );
 }
@@ -384,6 +570,93 @@ const s = StyleSheet.create({
   primary: { backgroundColor: "#2f6f3f", borderRadius: 8, paddingVertical: 15, alignItems: "center", marginTop: 12 },
   primaryDisabled: { opacity: 0.5 },
   primaryText: { color: "#fff", fontSize: 16, fontWeight: "700" },
+
+  actionBtnRow: { flexDirection: "row", gap: 10, marginTop: 12 },
+  halfBtn: { flex: 1, marginTop: 0 },
+  audioRecordBtn: {
+    backgroundColor: "#172b1d",
+    borderRadius: 8,
+    paddingVertical: 15,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#2f6f3f",
+  },
+  audioRecordBtnText: { color: "#86efac", fontSize: 16, fontWeight: "700" },
+
+  recordingBox: {
+    backgroundColor: "#201212",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#5a2020",
+    padding: 14,
+    marginTop: 12,
+  },
+  recordingTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  recIndicator: { flexDirection: "row", alignItems: "center", gap: 8 },
+  recPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#ef4444" },
+  recRecordingLabel: { color: "#fca5a5", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
+  recDurationText: { color: "#f6f6f2", fontSize: 20, fontWeight: "700", fontFamily: "Menlo" },
+  recActionsRow: { flexDirection: "row", gap: 10 },
+  recStopBtn: {
+    flex: 2,
+    backgroundColor: "#2f6f3f",
+    borderRadius: 7,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  recStopBtnText: { color: "#ffffff", fontSize: 14, fontWeight: "700" },
+  recCancelBtn: {
+    flex: 1,
+    backgroundColor: "#2a2a24",
+    borderRadius: 7,
+    paddingVertical: 12,
+    alignItems: "center",
+  },
+  recCancelBtnText: { color: "#c9c9bf", fontSize: 14, fontWeight: "600" },
+
+  audioPlayer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    backgroundColor: "#151512",
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#2a2a24",
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: 10,
+  },
+  audioPlayBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#244d2e",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  audioPlayIcon: { color: "#86efac", fontSize: 14, fontWeight: "700" },
+  audioTrack: {
+    height: 4,
+    backgroundColor: "#2e2e28",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  audioProgress: {
+    height: 4,
+    backgroundColor: "#86efac",
+    borderRadius: 2,
+  },
+  audioTimeRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  audioTimeText: { color: "#8a8a80", fontSize: 11, fontFamily: "Menlo" },
 
   notice: { borderRadius: 8, padding: 12, marginBottom: 16 },
   noticeOk: { backgroundColor: "#12331d" },

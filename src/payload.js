@@ -15,7 +15,7 @@ export function buildSyncPayload(deviceId, items, events) {
       collectedBy: i.collected_by,
       collectionLat: i.lat,
       collectionLng: i.lng,
-      collectionNote: i.collection_note ?? null,
+      collectionNote: i.collection_note ?? (i.duration_ms ? `Audio duration: ${Math.round(i.duration_ms / 1000)}s` : null),
       storagePath: i.storage_path ?? null,
     })),
     events: events.map((e) => ({

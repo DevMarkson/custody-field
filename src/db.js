@@ -18,6 +18,7 @@ export function getDb() {
           file_uri         TEXT NOT NULL,
           file_size_bytes  INTEGER NOT NULL,
           mime_type        TEXT,
+          duration_ms      INTEGER,
           root_hash        TEXT NOT NULL,
           chunk_size_bytes INTEGER NOT NULL,
           chunk_hashes     TEXT NOT NULL,
@@ -46,6 +47,11 @@ export function getDb() {
 
         CREATE TABLE IF NOT EXISTS cache (key TEXT PRIMARY KEY NOT NULL, value TEXT NOT NULL);
       `);
+
+      try {
+        await db.execAsync("ALTER TABLE items ADD COLUMN duration_ms INTEGER;");
+      } catch {}
+
       return db;
     })();
   }
@@ -71,11 +77,11 @@ export async function insertSealedItem(item) {
   const db = await getDb();
   await db.runAsync(
     `INSERT INTO items (local_id, reference, case_ref, description, file_name, file_uri,
-       file_size_bytes, mime_type, root_hash, chunk_size_bytes, chunk_hashes,
+       file_size_bytes, mime_type, duration_ms, root_hash, chunk_size_bytes, chunk_hashes,
        collected_at, collected_by, lat, lng, sync_state)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')`,
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending')`,
     [item.localId, item.reference, item.caseRef, item.description, item.fileName, item.fileUri,
-     item.fileSizeBytes, item.mimeType ?? null, item.rootHash, item.chunkSizeBytes,
+     item.fileSizeBytes, item.mimeType ?? null, item.durationMs ?? null, item.rootHash, item.chunkSizeBytes,
      JSON.stringify(item.chunkHashes), item.collectedAt, item.collectedBy,
      item.lat ?? null, item.lng ?? null]
   );
