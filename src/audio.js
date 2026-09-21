@@ -47,6 +47,25 @@ export async function requestAudioPermissions() {
   return micGranted;
 }
 
+export function getRecorderStatus(recorder) {
+  if (!recorder) return null;
+  try {
+    const state = recorder.getStatus();
+    const durationMs = (typeof state?.durationMillis === "number" && state.durationMillis > 0)
+      ? state.durationMillis
+      : (typeof recorder.currentTime === "number" && !isNaN(recorder.currentTime) && recorder.currentTime > 0)
+        ? Math.round(recorder.currentTime * 1000)
+        : 0;
+    return {
+      durationMs,
+      isRecording: Boolean(state?.isRecording),
+      canRecord: Boolean(state?.canRecord),
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function startRecording({ onProgress } = {}) {
   const granted = await requestAudioPermissions();
   if (!granted) {
@@ -71,15 +90,10 @@ export async function startRecording({ onProgress } = {}) {
 
   if (onProgress) {
     const interval = setInterval(() => {
-      try {
-        const state = recorder.getStatus();
-        if (state.isRecording) {
-          const duration = (typeof state.durationMillis === "number" && state.durationMillis > 0)
-            ? state.durationMillis
-            : Date.now() - recorder._startTime;
-          onProgress(duration);
-        }
-      } catch {}
+      const status = getRecorderStatus(recorder);
+      if (status) {
+        onProgress(status);
+      }
     }, 250);
     recorder._interval = interval;
   }
@@ -96,12 +110,12 @@ export async function stopRecording(recorder) {
   let durationMillis = 0;
   try {
     const state = recorder.getStatus();
-    durationMillis = state.durationMillis || (recorder.currentTime ? Math.round(recorder.currentTime * 1000) : 0);
+    durationMillis = (typeof state?.durationMillis === "number" && state.durationMillis > 0)
+      ? state.durationMillis
+      : (typeof recorder.currentTime === "number" && !isNaN(recorder.currentTime))
+        ? Math.round(recorder.currentTime * 1000)
+        : 0;
   } catch {}
-
-  if (!durationMillis && recorder._startTime) {
-    durationMillis = Date.now() - recorder._startTime;
-  }
 
   await recorder.stop();
 

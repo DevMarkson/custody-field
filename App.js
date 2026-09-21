@@ -19,7 +19,7 @@ import { sync, checkServer } from "./src/api.js";
 import { FadeIn, PendingBadge, ProgressBar, SkeletonList, StatusDot } from "./src/ui.js";
 import {
   isAudioFile, formatDuration, startRecording, stopRecording,
-  cancelRecording, inspectAudioDuration,
+  cancelRecording, inspectAudioDuration, getRecorderStatus,
 } from "./src/audio.js";
 
 const DEFAULTS = {
@@ -53,8 +53,6 @@ function FieldApp() {
   const [description, setDescription] = useState("");
   const [recordingState, setRecordingState] = useState(null);
   const recordingRef = useRef(null);
-  const recordingTimer = useRef(null);
-  const recordingStartTime = useRef(null);
   const syncTimer = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -64,7 +62,6 @@ function FieldApp() {
 
   useEffect(() => {
     return () => {
-      clearInterval(recordingTimer.current);
       if (recordingRef.current) {
         cancelRecording(recordingRef.current).catch(() => {});
       }
@@ -73,10 +70,20 @@ function FieldApp() {
 
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state === "active" && recordingStartTime.current && recordingRef.current) {
-        setRecordingState((prev) =>
-          prev ? { ...prev, durationMs: Date.now() - recordingStartTime.current } : null
-        );
+      if (!recordingRef.current) return;
+      if (state === "background" || state === "inactive") {
+        setRecordingState((prev) => (prev ? { ...prev, wasBackgrounded: true } : null));
+      } else if (state === "active") {
+        const status = getRecorderStatus(recordingRef.current);
+        if (status) {
+          setRecordingState((prev) =>
+            prev ? {
+              ...prev,
+              durationMs: status.durationMs,
+              isRecording: status.isRecording,
+            } : null
+          );
+        }
       }
     });
     return () => sub.remove();
@@ -235,30 +242,29 @@ function FieldApp() {
 
   async function handleStartRecording() {
     try {
+      setRecordingState({ durationMs: 0, isRecording: true, wasBackgrounded: false });
       const rec = await startRecording({
-        onProgress: (millis) => {
-          setRecordingState((prev) => (prev ? { ...prev, durationMs: millis } : null));
+        onProgress: ({ durationMs, isRecording }) => {
+          setRecordingState((prev) =>
+            prev ? {
+              ...prev,
+              durationMs,
+              isRecording,
+            } : null
+          );
         },
       });
       recordingRef.current = rec;
-      const startTime = Date.now();
-      recordingStartTime.current = startTime;
-      setRecordingState({ durationMs: 0 });
-      clearInterval(recordingTimer.current);
-      recordingTimer.current = setInterval(() => {
-        setRecordingState((prev) => (prev ? { ...prev, durationMs: Date.now() - startTime } : null));
-      }, 500);
     } catch (err) {
+      setRecordingState(null);
       Alert.alert("Recording Error", err.message ?? String(err));
     }
   }
 
   async function handleStopAndSealRecording() {
-    clearInterval(recordingTimer.current);
     if (!recordingRef.current) return;
     const rec = recordingRef.current;
     recordingRef.current = null;
-    recordingStartTime.current = null;
     const result = await stopRecording(rec);
     setRecordingState(null);
 
@@ -279,8 +285,6 @@ function FieldApp() {
   }
 
   async function handleCancelRecording() {
-    clearInterval(recordingTimer.current);
-    recordingStartTime.current = null;
     if (!recordingRef.current) return;
     const rec = recordingRef.current;
     recordingRef.current = null;
@@ -367,11 +371,20 @@ function FieldApp() {
             <View style={s.recordingBox}>
               <View style={s.recordingTop}>
                 <View style={s.recIndicator}>
-                  <View style={s.recPulseDot} />
-                  <Text style={s.recRecordingLabel}>LIVE AUDIO RECORDING</Text>
+                  <View style={[s.recPulseDot, !recordingState.isRecording && s.recPulseDotPaused]} />
+                  <Text style={[s.recRecordingLabel, !recordingState.isRecording && s.recRecordingLabelPaused]}>
+                    {recordingState.isRecording ? "LIVE AUDIO RECORDING" : "RECORDING PAUSED"}
+                  </Text>
                 </View>
                 <Text style={s.recDurationText}>{formatDuration(recordingState.durationMs)}</Text>
               </View>
+              {recordingState.wasBackgrounded && (
+                <View style={s.recNoticeBanner}>
+                  <Text style={s.recNoticeText}>
+                    ⚠️ Audio capture was paused while outside the app (Expo Go limitation). Timer tracks actual recorded audio.
+                  </Text>
+                </View>
+              )}
               <View style={s.recActionsRow}>
                 <Pressable
                   style={s.recStopBtn}
@@ -614,8 +627,24 @@ const s = StyleSheet.create({
   },
   recIndicator: { flexDirection: "row", alignItems: "center", gap: 8 },
   recPulseDot: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#ef4444" },
+  recPulseDotPaused: { backgroundColor: "#f59e0b" },
   recRecordingLabel: { color: "#fca5a5", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 },
+  recRecordingLabelPaused: { color: "#fcd34d" },
   recDurationText: { color: "#f6f6f2", fontSize: 20, fontWeight: "700", fontFamily: "Menlo" },
+  recNoticeBanner: {
+    backgroundColor: "#2e2410",
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#5c4815",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 12,
+  },
+  recNoticeText: {
+    color: "#fde047",
+    fontSize: 12,
+    lineHeight: 16,
+  },
   recActionsRow: { flexDirection: "row", gap: 10 },
   recStopBtn: {
     flex: 2,
