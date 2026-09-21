@@ -32,7 +32,9 @@
       [
         "expo-audio",
         {
-          "microphonePermission": "Allow Custody to record audio evidence in the field."
+          "microphonePermission": "Allow Custody to record audio evidence in the field.",
+          "enableBackgroundRecording": true,
+          "enableBackgroundPlayback": true
         }
       ]
     ]

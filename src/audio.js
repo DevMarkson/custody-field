@@ -1,8 +1,10 @@
+import { Platform } from "react-native";
 import {
   AudioModule,
   setAudioModeAsync,
   requestRecordingPermissionsAsync,
   getRecordingPermissionsAsync,
+  requestNotificationPermissionsAsync,
   RecordingPresets,
   createAudioPlayer,
 } from "expo-audio";
@@ -29,9 +31,20 @@ export function formatDuration(millis) {
 
 export async function requestAudioPermissions() {
   const perm = await getRecordingPermissionsAsync();
-  if (perm.granted) return true;
-  const res = await requestRecordingPermissionsAsync();
-  return res.granted;
+  let micGranted = perm.granted;
+  if (!micGranted) {
+    const res = await requestRecordingPermissionsAsync();
+    micGranted = res.granted;
+  }
+
+  // Android 13+ requires notification permission for foreground services
+  if (micGranted && Platform.OS === "android") {
+    try {
+      await requestNotificationPermissionsAsync();
+    } catch {}
+  }
+
+  return micGranted;
 }
 
 export async function startRecording({ onProgress } = {}) {
@@ -40,21 +53,28 @@ export async function startRecording({ onProgress } = {}) {
     throw new Error("Microphone permission was denied. Please allow microphone access to record audio evidence.");
   }
 
+  // Enable background recording and background audio session
   await setAudioModeAsync({
     allowsRecording: true,
+    allowsBackgroundRecording: true,
+    shouldPlayInBackground: true,
     playsInSilentMode: true,
   });
 
   const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
   await recorder.prepareToRecordAsync();
   recorder.record();
+  recorder._startTime = Date.now();
 
   if (onProgress) {
     const interval = setInterval(() => {
       try {
         const state = recorder.getStatus();
-        if (state.isRecording && typeof state.durationMillis === "number") {
-          onProgress(state.durationMillis);
+        if (state.isRecording) {
+          const duration = (typeof state.durationMillis === "number" && state.durationMillis > 0)
+            ? state.durationMillis
+            : Date.now() - recorder._startTime;
+          onProgress(duration);
         }
       } catch {}
     }, 250);
@@ -76,11 +96,16 @@ export async function stopRecording(recorder) {
     durationMillis = state.durationMillis || (recorder.currentTime ? Math.round(recorder.currentTime * 1000) : 0);
   } catch {}
 
+  if (!durationMillis && recorder._startTime) {
+    durationMillis = Date.now() - recorder._startTime;
+  }
+
   await recorder.stop();
 
   try {
     await setAudioModeAsync({
       allowsRecording: false,
+      allowsBackgroundRecording: false,
       playsInSilentMode: true,
     });
   } catch {}
@@ -100,6 +125,7 @@ export async function cancelRecording(recorder) {
   try {
     await setAudioModeAsync({
       allowsRecording: false,
+      allowsBackgroundRecording: false,
     });
   } catch {}
 }

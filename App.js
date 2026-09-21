@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Alert, Pressable, ScrollView,
+  Alert, AppState, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View,
 } from "react-native";
 import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
@@ -54,6 +54,7 @@ function FieldApp() {
   const [recordingState, setRecordingState] = useState(null);
   const recordingRef = useRef(null);
   const recordingTimer = useRef(null);
+  const recordingStartTime = useRef(null);
   const syncTimer = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -68,6 +69,17 @@ function FieldApp() {
         cancelRecording(recordingRef.current).catch(() => {});
       }
     };
+  }, []);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active" && recordingStartTime.current && recordingRef.current) {
+        setRecordingState((prev) =>
+          prev ? { ...prev, durationMs: Date.now() - recordingStartTime.current } : null
+        );
+      }
+    });
+    return () => sub.remove();
   }, []);
 
   useEffect(() => {
@@ -230,6 +242,7 @@ function FieldApp() {
       });
       recordingRef.current = rec;
       const startTime = Date.now();
+      recordingStartTime.current = startTime;
       setRecordingState({ durationMs: 0 });
       clearInterval(recordingTimer.current);
       recordingTimer.current = setInterval(() => {
@@ -245,6 +258,7 @@ function FieldApp() {
     if (!recordingRef.current) return;
     const rec = recordingRef.current;
     recordingRef.current = null;
+    recordingStartTime.current = null;
     const result = await stopRecording(rec);
     setRecordingState(null);
 
@@ -266,6 +280,7 @@ function FieldApp() {
 
   async function handleCancelRecording() {
     clearInterval(recordingTimer.current);
+    recordingStartTime.current = null;
     if (!recordingRef.current) return;
     const rec = recordingRef.current;
     recordingRef.current = null;
