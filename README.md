@@ -41,6 +41,7 @@ nothing between the scene and the server can alter it undetectably.
 | File access | `expo-file-system` (seekable handles) |
 | Local storage | `expo-sqlite` |
 | Capture | `expo-document-picker`, `expo-image-picker` |
+| Audio capture & playback | `expo-audio` (live microphone recording, playback) |
 | Location | `expo-location` (optional) |
 
 No animation library: motion uses React Native's built in `Animated`.
@@ -117,6 +118,7 @@ actual reachability rather than a connectivity API's opinion.
 ```
 App.js              screens, collection flow, sync orchestration
 src/
+  audio.js          recording, duration extraction, playback helpers
   hash.js           chunked hashing and the Merkle tree
   chain.js          device side event hashing
   db.js             SQLite queue
